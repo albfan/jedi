@@ -187,6 +187,20 @@ class ImportName(AbstractNameDefinition):
 class SubModuleName(ImportName):
     _level = 1
 
+import gi
+
+from gi.importer import DynamicImporter
+from gi.module import IntrospectionModule
+from jedi.evaluate.compiled import CompiledObject
+gi_importer = DynamicImporter('gi.repository')
+
+class PatchedJediCompiledObject(CompiledObject):
+    "A modified version of Jedi CompiledObject to work with GObject Introspection modules"
+    def _cls(self):
+        if self.obj.__class__ == IntrospectionModule:
+            return self
+        else:
+            return super()._cls()
 
 class Importer(object):
     def __init__(self, evaluator, import_path, module_context, level=0):
@@ -274,6 +288,18 @@ class Importer(object):
         return sys_path_mod
 
     def follow(self):
+        module_list = self._follow()
+        if module_list == []:
+            import_path = '.'.join([str(i) for i in self.import_path])
+            if import_path.startswith('gi.repository'):
+                try:
+                    module = gi_importer.load_module(import_path)
+                    module_list = [PatchedJediCompiledObject(module)]
+                except ImportError:
+                    pass
+        return module_list
+
+    def _follow(self):
         if not self.import_path:
             return NO_CONTEXTS
         return self._do_import(self.import_path, self.sys_path_with_modifications())
